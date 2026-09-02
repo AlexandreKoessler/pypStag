@@ -22,9 +22,6 @@ from .stagError import NoFileError, InputGridGeometryError, GridGeometryError, f
                        GridGeometryIncompatibleError, StagBaseError, fieldNatureError
 
 
-
-
-
 class MainStagObject:
     """
     Main class defining the highest level of inheritance
@@ -310,7 +307,7 @@ class MainStagObject:
         self.im('Reading and resampling operations done!')
     
 
-    def stag2VTU(self,fname=None,path='./',ASCII=False,return_only=False,creat_pointID=False,verbose=True):
+    def stag2VTU(self,fname=None,path='./',ASCII=False,return_only=False,creat_pointID=False,verbose=False):
             """ Extension of the stagVTK package, directly available on stagData !
             This function creat '.vtu' or 'xdmf/h5' file readable with Paraview to efficiently 
             visualize 3D data contain in a stagData object. This function works directly
@@ -321,7 +318,7 @@ class MainStagObject:
                 path = str, path where you want to export your new .vtu file.
                         [Default: path='./']
                 ASCII = bool, if True, the .vtu file will be write in ASCII mode
-                        if not, in binary mode. [Default, ASCII=True]
+                        if not, in binary mode. [Default, ASCII=False]
                 creat_pointID = bool, if True then creat the list of points ID sorted as
                           it is in the field stagData.x (Yin and Yang together).
                           This field will then transfert to the writing function and
@@ -629,7 +626,7 @@ class StagYinYangGeometry(MainStagObject):
         self.phi1   = self.phi1[goodIndex]
         self.phi2   = self.phi2[goodIndex]
         self.layers = self.layers[goodIndex]
-        self.layers = self.layers.astype(np.int)
+        self.layers = self.layers.astype(np.int32)
         
         # Extract the scalar or the vectorial field V: V1 on Yin, V2 on Yang
         self.im('  - Construction of the appropriated vectorial field:')
@@ -1206,6 +1203,7 @@ class StagSphericalGeometry(MainStagObject):
         """
         self.im('Processing stag Data:')
         self.im('  - Grid Geometry')
+        aspect = self.header.get('aspect')
         # Meshing
         (self.x,self.y,self.z) = np.meshgrid(self.x_coords,self.y_coords,self.z_coords,indexing='ij')
         # Geometry
@@ -1236,14 +1234,16 @@ class StagSphericalGeometry(MainStagObject):
         goodIndex = np.array(range(self.nx0*self.ny0*self.nz0))
         goodIndex = goodIndex[np.array(self.XYZind,dtype=bool)]
 
-        #Function for 3D psherical YY grids
+        #Function for 3D spherical grids
         def rectangular2Spherical(x,y,z,rcmb):
             """Returns the geometry of the spherical grid
             after bending the cartesian box"""
             #Spherical coordinates:
             R = z+rcmb
-            lat = np.pi/4 - x
-            lon = y - 3*np.pi/4
+            #lat = np.pi/4 - x
+            #lon = y - 3*np.pi/4
+            lat = x - 0.5*aspect[0]
+            lon = y - 0.5*aspect[1]
             #Spherical grid
             x = np.multiply(np.multiply(R,np.cos(lat)),np.cos(lon))
             y = np.multiply(np.multiply(R,np.cos(lat)),np.sin(lon))
@@ -1292,30 +1292,36 @@ class StagSphericalGeometry(MainStagObject):
             self.P  = temp_P[goodIndex].reshape(self.nx,self.ny,self.nz)
             self.v  = np.sqrt(self.vx**2+self.vy**2+self.vz**2) #the norm
 
-            # -- From now, like for YY grids
-            #Transform velocities from internal Yin or Yang coord -> Cartesian
-            self.im('      - Merging of velocities: YY -> Cartesian')
-            tx_coord = self.header.get('e1_coord') #temps, will be immediately deleted after use
-            ty_coord = self.header.get('e2_coord')
-            tz_coord = self.header.get('e3_coord')
-            (tX,tY,tZ) = np.meshgrid(self.x_coords,self.y_coords,self.z_coords,indexing='ij')
-            tX = tX.flatten()
-            tY = tY.flatten()
-            tZ = tZ.flatten()
-            #R = tZ + self.rcmb
-            lat = np.pi/4 - tX
-            lon = tY - 3*np.pi/4
+            # -- Velocities: from the box basis to the global cartesian frame
+            # In a bent ("spherical") box the local basis StagYY writes its
+            # velocities in IS the spherical basis: vx = northward = -v_theta,
+            # vy = eastward = v_phi, vz = radial = v_r (the box coordinates are
+            # x = latitude + a_theta/2, y = longitude + a_phi/2, z = radius, see
+            # rectangular2Spherical above). So the spherical components are read
+            # off directly, and the cartesian ones follow from the standard
+            # spherical -> cartesian rotation written with the COLATITUDE theta:
+            #     ex =  vr sinT cosP + vtheta cosT cosP - vphi sinP
+            #     ey =  vr sinT sinP + vtheta cosT sinP + vphi cosP
+            #     ez =  vr cosT      - vtheta sinT
+            self.im('      - Conversion of velocities: box basis -> Cartesian')
+            theta = self.theta.flatten()      # colatitude of each grid point
+            phi   = self.phi.flatten()        # longitude
+            sinT, cosT = np.sin(theta), np.cos(theta)
+            sinP, cosP = np.sin(phi),   np.cos(phi)
             # --- on grid ---
-            Vtheta = self.vx.flatten()
-            Vphi   = self.vy.flatten()
-            Vr     = self.vz.flatten()
-            self.vx    =    Vtheta*np.sin(lat)*np.cos(lon) - Vphi*np.sin(lon) + Vr*np.cos(lat)*np.cos(lon)
-            self.vy    =    Vtheta*np.sin(lat)*np.sin(lon) + Vphi*np.cos(lon) + Vr*np.cos(lat)*np.sin(lon)
-            self.vz    = -1*Vtheta*np.cos(lat)                                + Vr*np.sin(lat)
-            self.vr    = Vr
+            Vtheta = -self.vx.flatten()       # box x points north, theta grows south
+            Vphi   =  self.vy.flatten()
+            Vr     =  self.vz.flatten()
+            self.vx     = Vr*sinT*cosP + Vtheta*cosT*cosP - Vphi*sinP
+            self.vy     = Vr*sinT*sinP + Vtheta*cosT*sinP + Vphi*cosP
+            self.vz     = Vr*cosT      - Vtheta*sinT
+            self.vr     = Vr
+            self.vtheta = Vtheta
+            self.vphi   = Vphi
             #Discharge of the memory
-            (tX, tY, tZ)       = (None, None, None)
-            (Vtheta, Vphi, Vr) = (None, None, None)
+            (theta, phi)             = (None, None)
+            (sinT, cosT, sinP, cosP) = (None, None, None, None)
+            (Vtheta, Vphi, Vr)       = (None, None, None)
             
             #Adjusting the type
             #self.vx = np.array(self.vx)
@@ -1324,17 +1330,11 @@ class StagSphericalGeometry(MainStagObject):
             #self.vr = np.array(self.vr)
             #self.P = np.array(self.P)
             
-            #Tranformation of velocities from cartesian to spherical:
-            self.im('      - Conversion of Velocities: Cartesian -> Spherical')
-            lat1 = np.arctan2(np.sqrt(self.x.flatten()**2+self.y.flatten()**2),self.z.flatten())
-            lon1 = np.arctan2(self.y.flatten(),self.x.flatten())
-            
-            Vlat1 =  self.vx*(np.cos(lon1)*np.cos(lat1)) + self.vy*(np.sin(lon1)*np.cos(lat1)) - self.vz*(np.sin(lat1))
-            Vlon1 = -self.vx*(np.sin(lon1))              + self.vy*(np.cos(lon1))
-            
+            # .vtheta/.vphi/.vr are the box components themselves (see above):
+            # no cartesian -> spherical round trip, which would only add noise.
             #Conservation of the ndarray-type:
-            self.vtheta = Vlat1.reshape(self.nx,self.ny,self.nz)
-            self.vphi   = Vlon1.reshape(self.nx,self.ny,self.nz)
+            self.vtheta = self.vtheta.reshape(self.nx,self.ny,self.nz)
+            self.vphi   = self.vphi.reshape(self.nx,self.ny,self.nz)
             self.vx = self.vx.reshape(self.nx,self.ny,self.nz)
             self.vy = self.vy.reshape(self.nx,self.ny,self.nz)
             self.vz = self.vz.reshape(self.nx,self.ny,self.nz)
@@ -2253,7 +2253,7 @@ class SphericalSliceData(MainSliceData):
 
 
 
-    def slicing(self,stagData,axis=1,normal=[1,0,0],layer=-1):
+    def slicing(self,stagData,axis=1,normal=[1,0,0],layer=-1,interp_method='nearest'):
         """
         Extract an annulus-slice or a depth-slice in a stagData.StagSphericalGeometry object.
         The annulus-slice is defined according to a normal vector, perpendicular to the slicing plan.

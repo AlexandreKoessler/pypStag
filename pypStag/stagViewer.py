@@ -232,7 +232,7 @@ def scatterMap(stagData,field='v',stagVelocity=None,\
 def contourfMap(stagData,field='v',stagVelocity=None,\
                 axis=1,normal=None,layer=-1,method='tri',interp_method='nearest',locate=None,\
                 pollenPlot=False,pollenData=None,pollenField='v',plotparam_pollen=None,\
-                title=None,plotparam=None,plotparam_velo=None,verbose=True,\
+                title=None,plotparam=None,plotparam_velo=None,verbose=True,scatter=False,\
                 mask_arrowsID=None,return_mask_arrowsID=True):
     """
     Generic function do make a contour fieled map from a pypStag.StagData object.
@@ -241,26 +241,29 @@ def contourfMap(stagData,field='v',stagVelocity=None,\
         if stagData.geometry == 'cart2D':
             output = __map_cart2D(stagData,field=field,stagVelocity=stagVelocity,title=title,plotparam=plotparam,plotparam_velo=plotparam_velo,verbose=verbose,\
                                   mask_arrowsID=mask_arrowsID,return_mask_arrowsID=return_mask_arrowsID,\
-                                  scatter=False)
+                                  scatter=scatter)
         elif stagData.geometry == 'cart3D':
             output = __map_cart3D(stagData,field=field,stagVelocity=stagVelocity,axis=axis,normal=normal,layer=layer,method=method,interp_method=interp_method,title=title,plotparam=plotparam,plotparam_velo=plotparam_velo,verbose=verbose,\
                                   mask_arrowsID=mask_arrowsID,return_mask_arrowsID=return_mask_arrowsID,\
-                                  scatter=False)
+                                  scatter=scatter)
         else:
             raise InputGridGeometryError_Viewer(stagData.geometry)
     elif isinstance(stagData,StagSphericalGeometry):
         if stagData.geometry == 'spherical':
-            raise InputGridGeometryError_Viewer(stagData.geometry)
+            output = __map_spherical(stagData,field=field,stagVelocity=stagVelocity,axis=axis,normal=normal,layer=layer,method=method,interp_method=interp_method,title=title,plotparam=plotparam,plotparam_velo=plotparam_velo,verbose=verbose,\
+                                  mask_arrowsID=mask_arrowsID,return_mask_arrowsID=return_mask_arrowsID,\
+                                  scatter=scatter)
+            #raise InputGridGeometryError_Viewer(stagData.geometry)
         elif stagData.geometry == 'annulus':
             output = __map_annulus(stagData,field=field,stagVelocity=stagVelocity,pollenPlot=pollenPlot,pollenData=pollenData,layer=layer,pollenField=pollenField,title=title,plotparam=plotparam,plotparam_pollen=plotparam_pollen,plotparam_velo=plotparam_velo,verbose=verbose,\
                                    mask_arrowsID=mask_arrowsID,return_mask_arrowsID=return_mask_arrowsID,\
-                                   scatter=False)
+                                   scatter=scatter)
         else:
             raise InputGridGeometryError_Viewer(stagData.geometry)
     elif isinstance(stagData,StagYinYangGeometry):
         output = __map_yy(stagData,field=field,stagVelocity=stagVelocity,axis=axis,normal=normal,layer=layer,method=method,interp_method=interp_method,locate=locate,title=title,pollenPlot=pollenPlot,pollenData=pollenData,pollenField=pollenField,plotparam_pollen=plotparam_pollen,plotparam=plotparam,plotparam_velo=plotparam_velo,verbose=verbose,\
                           mask_arrowsID=mask_arrowsID,return_mask_arrowsID=return_mask_arrowsID,\
-                          scatter=False)
+                          scatter=scatter)
     return output
 
 
@@ -307,7 +310,7 @@ def __map_cart2D(stagData,field='v',stagVelocity=None,title=None,plotparam=None,
         if plotparam.cbar_location is not None:
             #cbaxes = fig.add_axes([0.3, 0.1, 0.4, 0.01])
             cbar   = fig.colorbar(cmap4bar, ax=[ax], location=plotparam.cbar_location, shrink=plotparam.cbar_shrink, pad=plotparam.cbar_pad,aspect=plotparam.cbar_aspect)
-        elif cbaxes is not None:
+        elif plotparam.cbar_axis is not None:
             cbaxes = fig.add_axes(plotparam.cbar_axis) # [left, bottom, width, height]
             cbar   = fig.colorbar(cmap4bar,cax=cbaxes,orientation=plotparam.cbar_orientation)
         
@@ -342,7 +345,7 @@ def __map_cart2D(stagData,field='v',stagVelocity=None,title=None,plotparam=None,
                 veloWidth = plotparam_velo.arrow_width
                 Qscale = plotparam_velo.qscale
                 noa = plotparam_velo.noa
-                acolor = plotparam.acolor
+                acolor = plotparam_velo.acolor
             else:
                 Qscale = int(np.mean(np.sqrt(vx**2+vy**2)))
                 noa = 1000
@@ -448,7 +451,7 @@ def __map_cart3D(stagData,field='v',stagVelocity=None,axis=1,normal=None,layer=-
         if plotparam.cbar_location is not None:
             #cbaxes = fig.add_axes([0.3, 0.1, 0.4, 0.01])
             cbar   = fig.colorbar(cmap4bar, ax=[ax], location=plotparam.cbar_location, shrink=plotparam.cbar_shrink, pad=plotparam.cbar_pad,aspect=plotparam.cbar_aspect)
-        elif cbaxes is not None:
+        elif plotparam.cbar_axis is not None:
             cbaxes = fig.add_axes(plotparam.cbar_axis) # [left, bottom, width, height]
             cbar   = fig.colorbar(cmap4bar,cax=cbaxes,orientation=plotparam.cbar_orientation)
         
@@ -523,6 +526,163 @@ def __map_cart3D(stagData,field='v',stagVelocity=None,axis=1,normal=None,layer=-
     else:
         return None
 
+def __map_spherical(stagData,field='v',stagVelocity=None,axis=1,normal=None,layer=-1,method='tri',  \
+                    interp_method='nearest',title=None,plotparam=None,plotparam_velo=None,verbose=True,\
+                 scatter=True,s=1,mask_arrowsID=None,return_mask_arrowsID=True):
+    """
+    axis must be in:
+        axis = 0                                 # for a slice computed with the normal to the slicing plan (as for YY annulus)
+        axis = 'xy' or axis = 'yx' or axis = 1   # [Default]
+        axis = 'xz' or axis = 'zx' or axis = 2
+        axis = 'yz' or axis = 'zy' or axis = 3
+    """
+    pName = 'cart3DMap'
+    if axis == 0:
+        if normal is None:
+            normal = [1,0,0]
+    plotparam,title,cmap,stagfield,vmin,vmax,levels = __builder(stagData,field=field,axis=axis,normal=normal,layer=layer,title=title,plotparam=plotparam,verbose=verbose)
+
+    fig, ax = plt.subplots(1,1,figsize=(plotparam.figsize[0]*plotparam.aspect_ratio,plotparam.figsize[1]))
+    if plotparam.aspect == 'equal':
+        ax.set_aspect('equal', 'box')
+    ax.set_title(title)
+
+    loc = layer
+    if axis == 'xz' or axis == 'zx' or axis == 2:
+        if not scatter:
+            cmap4bar = ax.contourf(stagData.xc[:,loc,:],stagData.zc[:,loc,:],stagfield[:,loc,:],levels=levels,cmap=cmap,extend='both')
+        else:
+            cmap4bar = ax.scatter(stagData.xc[:,loc,:],stagData.zc[:,loc,:],c=stagfield[:,loc,:],cmap=cmap,s=s,vmin=vmin,vmax=vmax)
+        ax.set_xlabel('x-axis')
+        ax.set_ylabel('z-axis')
+
+    elif axis == 'yz' or axis == 'zy' or axis == 3:
+        if not scatter:
+            cmap4bar = ax.contourf(stagData.yc[loc,:,:],stagData.zc[loc,:,:],stagfield[loc,:,:],levels=levels,cmap=cmap,extend='both')
+        else:
+            cmap4bar = ax.scatter(stagData.yc[loc,:,:],stagData.zc[loc,:,:],c=stagfield[loc,:,:],cmap=cmap,s=s,vmin=vmin,vmax=vmax)
+        ax.set_xlabel('y-axis')
+        ax.set_ylabel('z-axis')
+    
+    elif axis == 'xy' or axis == 'yx' or axis == 1:
+        if not scatter:
+            cmap4bar = ax.contourf(stagData.xc[:,:,loc],stagData.yc[:,:,loc],stagfield[:,:,loc],levels=levels,cmap=cmap,extend='both')
+        else:
+            cmap4bar = ax.scatter(stagData.xc[:,:,loc],stagData.yc[:,:,loc],c=stagfield[:,:,loc],cmap=cmap,s=s,vmin=vmin,vmax=vmax)
+        ax.set_xlabel('x-axis')
+        ax.set_ylabel('y-axis')
+    
+    elif axis == 0:
+        # --- Slicing
+        sld = SliceData(geometry=stagData.geometry)
+        sld.slicing(stagData,axis=axis,normal=normal,layer=layer,interp_method=interp_method)  # give an axis and here a normal vector
+        plotparam,title,cmap,stagfield,vmin,vmax,levels = __builder(sld,field=field,axis=axis,normal=normal,layer=layer,title=title,plotparam=plotparam,verbose=verbose)
+        # --- Plot
+        if not scatter:
+            if method == 'interp':
+                # --- Direct mapping: no need to interpolate, it's already done for the yy->annulus slice
+                cmap4bar = ax.pcolormesh(sld.x,sld.y,stagfield, cmap=cmap, vmin=plotparam.vmin, vmax=plotparam.vmax,antialiased=plotparam.antialiased)
+            if method == 'tri':
+                cmap4bar = ax.contourf(sld.x,sld.y,stagfield,levels=levels,cmap=cmap,extend='both',antialiased=plotparam.antialiased)
+        else:
+            cmap4bar = ax.scatter(sld.x,sld.y,c=stagfield,s=s,cmap=cmap,vmin=vmin,vmax=vmax)
+        if plotparam.aspect == 'equal':
+            ax.set_aspect('equal', 'box')
+        #
+        ax.invert_yaxis()
+        #
+    else:
+        raise StagOptionInDevError()
+        
+    # cbar
+    if plotparam.cbar == True:
+        if plotparam.cbar_location is not None:
+            #cbaxes = fig.add_axes([0.3, 0.1, 0.4, 0.01])
+            cbar   = fig.colorbar(cmap4bar, ax=[ax], location=plotparam.cbar_location, shrink=plotparam.cbar_shrink, pad=plotparam.cbar_pad,aspect=plotparam.cbar_aspect)
+        elif plotparam.cbar_axis is not None:
+            cbaxes = fig.add_axes(plotparam.cbar_axis) # [left, bottom, width, height]
+            cbar   = fig.colorbar(cmap4bar,cax=cbaxes,orientation=plotparam.cbar_orientation)
+        
+        if plotparam.cbar_label is not None:
+            clabel = plotparam.cbar_label
+        else:
+            clabel = stagData.fieldType
+        cbar.set_label(clabel,size=plotparam.cbar_labelsize)
+    
+    #if isinstance(stagVelocity,StagCartesianGeometry):
+    mask_arrows = None   # stays None when no velocity is overlaid (see the return below)
+    if stagVelocity is not None :
+        if stagVelocity.fieldType != 'Velocity':
+            raise fieldTypeError('Velocity')
+        else:
+            # Quiver
+            if axis == 'xz' or axis == 'zx' or axis == 2:
+                xa = stagVelocity.xc[:,loc,:].flatten()
+                ya = stagVelocity.zc[:,loc,:].flatten()
+                vx = stagVelocity.vx[:,loc,:].flatten()
+                vy = stagVelocity.vz[:,loc,:].flatten()
+            elif axis == 'yz' or axis == 'zy' or axis == 3:
+                xa = stagVelocity.yc[loc,:,:].flatten()
+                ya = stagVelocity.zc[loc,:,:].flatten()
+                vx = stagVelocity.vy[loc,:,:].flatten()
+                vy = stagVelocity.vz[loc,:,:].flatten()
+            elif axis == 'xy' or axis == 'yx' or axis == 1:
+                xa = stagVelocity.xc[:,:,loc].flatten()
+                ya = stagVelocity.yc[:,:,loc].flatten()
+                vx = stagVelocity.vx[:,:,loc].flatten()
+                vy = stagVelocity.vy[:,:,loc].flatten()
+            elif axis == 0:
+                sldv = SliceData(geometry=stagData.geometry)
+                sldv.slicing(stagVelocity,axis=axis,normal=normal,layer=layer,interp_method=interp_method)  # give an axis and here a normal vector
+                # The field is drawn in the plane frame (sld.x, sld.y), i.e. the
+                # projection on (normalu, normalv): the arrows must live in that
+                # same frame, positions AND components. sldv.vx/.vy/.vz are the
+                # global cartesian components, so they project exactly the way
+                # the coordinates do.
+                xa   = sldv.x.flatten()
+                ya   = sldv.y.flatten()
+                u    = sldv.normalu/np.linalg.norm(sldv.normalu)
+                v    = sldv.normalv/np.linalg.norm(sldv.normalv)
+                vcar = np.array([sldv.vx.flatten(),sldv.vy.flatten(),sldv.vz.flatten()])
+                vx   = np.dot(vcar.T,u)
+                vy   = np.dot(vcar.T,v)
+            if plotparam_velo is not None:
+                veloScale = plotparam_velo.vscale
+                veloWidth = plotparam_velo.arrow_width
+                Qscale = plotparam_velo.qscale
+                noa = plotparam_velo.noa
+                acolor = plotparam_velo.acolor
+            else:
+                Qscale = int(np.mean(np.sqrt(vx**2+vy**2)))
+                noa = 1000
+                if noa > len(xa):
+                    while noa > len(xa):
+                        noa = int(noa/10)
+                veloScale = None
+                veloWidth = None
+                acolor = 'k'
+            # noa = number of Arrows
+            id = list(range(len(xa)))
+            if mask_arrowsID is None:
+                mask_arrows = random.sample(id,noa)
+            else:
+                mask_arrows = mask_arrowsID
+            xa = xa[mask_arrows]
+            ya = ya[mask_arrows]
+            vx = vx[mask_arrows]
+            vy = vy[mask_arrows]
+            Q  = ax.quiver(xa,ya,vx,vy,scale=veloScale,width=veloWidth,color=acolor)
+            qq = ax.quiverkey(Q,0.95,-0.1,Qscale,'v='+str(Qscale),labelpos='E')
+    #elif stagVelocity is not None:
+    #    raise StagTypeError(type(stagVelocity),str(StagCartesianGeometry))
+    # Plot
+    if plotparam.tight_layout:
+        fig.tight_layout()
+    plt.show()
+    if return_mask_arrowsID:
+        return mask_arrows
+    else:
+        return None
 
 def __map_annulus(stagData,field='v',stagVelocity=None,pollenPlot=False,pollenData=None,layer=-1,pollenField='v',title=None,plotparam=None,plotparam_pollen=None,plotparam_velo=None,verbose=True,\
                   scatter=True,s=1,mask_arrowsID=None,return_mask_arrowsID=True):
@@ -673,7 +833,7 @@ def __map_annulus(stagData,field='v',stagVelocity=None,pollenPlot=False,pollenDa
         if plotparam.cbar_location is not None:
             #cbaxes = fig.add_axes([0.3, 0.1, 0.4, 0.01])
             cbar   = fig.colorbar(cmap4bar, ax=[ax], location=plotparam.cbar_location, shrink=plotparam.cbar_shrink, pad=plotparam.cbar_pad)
-        elif cbaxes is not None:
+        elif plotparam.cbar_axis is not None:
             cbaxes = fig.add_axes(plotparam.cbar_axis) # [left, bottom, width, height]
             cbar   = fig.colorbar(cmap4bar,cax=cbaxes,orientation=plotparam.cbar_orientation)
         
@@ -727,7 +887,7 @@ def __map_annulus(stagData,field='v',stagVelocity=None,pollenPlot=False,pollenDa
                 veloWidth = plotparam_velo.arrow_width
                 Qscale = plotparam_velo.qscale
                 noa = plotparam_velo.noa
-                acolor = plotparam.acolor
+                acolor = plotparam_velo.acolor
             else:
                 Qscale = int(np.mean(np.sqrt(vx**2+vy**2)))
                 noa = 1000
@@ -912,7 +1072,7 @@ def __map_yy(stagData,field='v',axis=0,normal=None,layer=-1,stagVelocity=None,me
                         veloWidth = plotparam_velo.arrow_width
                         Qscale = plotparam_velo.qscale
                         noa = plotparam_velo.noa
-                        acolor = plotparam.acolor
+                        acolor = plotparam_velo.acolor
                     else:
                         Qscale = int(np.mean(np.sqrt(vx**2+vy**2)))
                         noa = 1000
@@ -1110,7 +1270,7 @@ def __map_yy(stagData,field='v',axis=0,normal=None,layer=-1,stagVelocity=None,me
                     veloWidth = plotparam_velo.arrow_width
                     Qscale = plotparam_velo.qscale
                     noa = plotparam_velo.noa
-                    acolor = plotparam.acolor
+                    acolor = plotparam_velo.acolor
                 else:
                     Qscale = int(np.mean(np.sqrt(vx**2+vy**2)))
                     noa = 1000
@@ -1137,7 +1297,7 @@ def __map_yy(stagData,field='v',axis=0,normal=None,layer=-1,stagVelocity=None,me
         if plotparam.cbar_location is not None:
             #cbaxes = fig.add_axes([0.3, 0.1, 0.4, 0.01])
             cbar   = fig.colorbar(cmap4bar, ax=[ax], location=plotparam.cbar_location, shrink=plotparam.cbar_shrink, pad=plotparam.cbar_pad)
-        elif cbaxes is not None:
+        elif plotparam.cbar_axis is not None:
             cbaxes = fig.add_axes(plotparam.cbar_axis) # [left, bottom, width, height]
             cbar   = fig.colorbar(cmap4bar,cax=cbaxes,orientation=plotparam.cbar_orientation)
         
