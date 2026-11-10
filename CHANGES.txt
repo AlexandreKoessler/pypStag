@@ -4,6 +4,19 @@ pypStag
 =======
 
 -----------------
+2026-11-04 (fork AlexandreKoessler/pypStag)
+	version 0.7.1: bent-box ('spherical') geometry, module constant
+	stagData.SPHERICAL_CONVENTION = 2:
+	  - .theta (colatitude), .phi (longitude) and .r in float64, computed straight
+	    from the box coordinates instead of arctan2 of the float32 cartesian
+	    coordinates (~1e-7 rad of error before); aspect and rcmb taken at the
+	    decimal value of the par file;
+	  - .vtheta, .vphi, .vr are the components StagYY writes in the bent box (since
+	    cdff427); the cartesian .vx, .vy, .vz are now computed with float64 trig.
+	Code that needs these conventions checks SPHERICAL_CONVENTION.
+
+
+-----------------
 commit 29/06/2023
 	version 0.7: general update: new stable version! Fix the problem of single layer VTK,
         add several new computational tool for 3D YY, fix issues on PlotParam and add scatterMap function for auto display

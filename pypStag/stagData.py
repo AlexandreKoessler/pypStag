@@ -22,6 +22,17 @@ from .stagError import NoFileError, InputGridGeometryError, GridGeometryError, f
                        GridGeometryIncompatibleError, StagBaseError, fieldNatureError
 
 
+# Conventions of the bent-box geometry (StagSphericalGeometry), for code that relies
+# on them and checks this number:
+#   1  .vtheta, .vphi, .vr are the velocity components StagYY writes in the local
+#      (spherical) basis of the bent box, read as they are; .vx, .vy, .vz are the
+#      components in the global cartesian frame of the sphere;
+#   2  in addition, .theta (colatitude), .phi (longitude) and .r are float64 and
+#      computed straight from the box coordinates, without the round trip through
+#      the cartesian coordinates (arctan2 in float32, ~1e-7 rad of error).
+SPHERICAL_CONVENTION = 2
+
+
 class MainStagObject:
     """
     Main class defining the highest level of inheritance
@@ -1261,7 +1272,18 @@ class StagSphericalGeometry(MainStagObject):
         self.im('      - Creation of the spherical grids')
         (self.x,self.y,self.z) = rectangular2Spherical(self.x,self.y,self.z,self.rcmb)
 
-        (self.r,self.theta,self.phi) = cartesian2spherical(self.x,self.y,self.z)
+        # Spherical coordinates, in float64, straight from the box coordinates
+        # (x = latitude + aspect[0]/2, y = longitude + aspect[1]/2, z = r - rcmb),
+        # rather than from the cartesian ones above (arctan2 in float32, ~1e-7 rad of
+        # error, i.e. ~1e-5 of the grid step, visible in horizontal derivatives).
+        # aspect and rcmb are float32 in the header: their shortest repr gives back
+        # the decimal value of the par file (1.8, not 1.7999999523). The remaining
+        # error is that of the float32 coordinates written by StagYY.
+        a_x, a_y = (float(str(np.float32(a))) for a in aspect[:2])
+        rcmb64 = float(str(np.float32(self.rcmb)))
+        self.r     = np.asarray(self.zc, dtype=np.float64) + rcmb64
+        self.theta = 0.5 * (np.pi + a_x) - np.asarray(self.xc, dtype=np.float64)   # colatitude
+        self.phi   = np.asarray(self.yc, dtype=np.float64) - 0.5 * a_y             # longitude
             #=============================================================
 
         #Processing of the field according to its scalar or vectorial nature:
@@ -1312,9 +1334,11 @@ class StagSphericalGeometry(MainStagObject):
             Vtheta = -self.vx.flatten()       # box x points north, theta grows south
             Vphi   =  self.vy.flatten()
             Vr     =  self.vz.flatten()
-            self.vx     = Vr*sinT*cosP + Vtheta*cosT*cosP - Vphi*sinP
-            self.vy     = Vr*sinT*sinP + Vtheta*cosT*sinP + Vphi*cosP
-            self.vz     = Vr*cosT      - Vtheta*sinT
+            # (theta and phi are float64: the cartesian components are computed in
+            # float64 and stored in the precision of the file)
+            self.vx     = (Vr*sinT*cosP + Vtheta*cosT*cosP - Vphi*sinP).astype(Vr.dtype)
+            self.vy     = (Vr*sinT*sinP + Vtheta*cosT*sinP + Vphi*cosP).astype(Vr.dtype)
+            self.vz     = (Vr*cosT      - Vtheta*sinT).astype(Vr.dtype)
             self.vr     = Vr
             self.vtheta = Vtheta
             self.vphi   = Vphi
